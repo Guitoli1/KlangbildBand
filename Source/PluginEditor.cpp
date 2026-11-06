@@ -12,14 +12,13 @@ BandAudioProcessorEditor::BandAudioProcessorEditor (BandAudioProcessor& p)
     addKnob ("output",  "AUSGANG (DB)", true, juce::String (juce::CharPointer_UTF8 ("\xe2\x88\x92" "18|\xe2\x88\x92" "12|\xe2\x88\x92" "6|0|+6|+12")));
     addKnob ("speed",   "SPEED (IPS)",  false, "7,5|15|30");
     addKnob ("bias",    "BIAS",         false, juce::String (juce::CharPointer_UTF8 ("UNTER|\xe2\x80\x93|0|\xe2\x80\x93|\xc3\x9c" "BER")));
-    addKnob ("wow",     "WOW",          false);
-    addKnob ("flutter", "FLUTTER",      false);
-    addKnob ("hiss",    "RAUSCHEN",     false);
+    addKnob ("wow",     "WOW (%)",      false, "0|25|50|75|100");
+    addKnob ("flutter", "FLUTTER (%)",  false, "0|25|50|75|100");
+    addKnob ("hiss",    "RAUSCHEN (%)", false, "0|25|50|75|100");
 
     setupSwitch (onSwitch, "on", "AN", "AUS", lampRed);
     setupSwitch (autoSwitch, "autogain", "AN", "AUS", lampAmber);
 
-    presetBox.getProperties().set ("plate", true);
     for (int i = 0; i < proc.getNumPrograms(); ++i)
         presetBox.addItem (proc.getProgramName (i), i + 1);
     presetBox.setSelectedId (proc.getCurrentProgram() + 1, juce::dontSendNotification);
@@ -31,7 +30,9 @@ BandAudioProcessorEditor::BandAudioProcessorEditor (BandAudioProcessor& p)
     reels.setInterceptsMouseClicks (false, false);
     addAndMakeVisible (reels);
 
-    setSize (1100, 620);
+    rack::styleToggle (onSwitch);
+    rack::styleToggle (autoSwitch);
+    setSize (rackW, rackH);
     startTimerHz (60);
 }
 
@@ -95,161 +96,63 @@ void BandAudioProcessorEditor::timerCallback()
 }
 
 //==============================================================================
-void BandAudioProcessorEditor::renderTextures()
+void BandAudioProcessorEditor::renderPanel()
 {
-    tolexImage = juce::Image (juce::Image::RGB, juce::jmax (1, getWidth()), juce::jmax (1, getHeight()), false);
-    {
-        juce::Image::BitmapData data (tolexImage, juce::Image::BitmapData::writeOnly);
-        juce::Random rnd (7);
-        for (int y = 0; y < tolexImage.getHeight(); ++y)
-            for (int x = 0; x < tolexImage.getWidth(); ++x)
-            {
-                const int weave = ((x + y) % 4 == 0 || (x - y + 4096) % 4 == 0) ? -5 : 0;
-                const int n = rnd.nextInt (13) - 6 + weave;
-                data.setPixelColour (x, y, juce::Colour ((juce::uint8) juce::jlimit (0, 255, 34 + n),
-                                                         (juce::uint8) juce::jlimit (0, 255, 28 + n),
-                                                         (juce::uint8) juce::jlimit (0, 255, 24 + n)));
-            }
-    }
-    if (faceplate.isEmpty())
-        return;
-    faceplateImage = juce::Image (juce::Image::ARGB, faceplate.getWidth(), faceplate.getHeight(), true);
-    juce::Graphics g (faceplateImage);
-    const auto r = faceplateImage.getBounds().toFloat();
-    g.setGradientFill (juce::ColourGradient (cream.brighter (0.06f), 0, 0, creamDark, 0, r.getHeight(), false));
-    g.fillRoundedRectangle (r, 6.0f);
-    juce::Random rnd (3);
-    for (int y = 0; y < faceplate.getHeight(); ++y)
-    {
-        g.setColour ((rnd.nextBool() ? juce::Colours::white : juce::Colour (0xff6b5534)).withAlpha (0.015f + rnd.nextFloat() * 0.035f));
-        g.drawHorizontalLine (y, 0.0f, r.getWidth());
-    }
-    g.setGradientFill (juce::ColourGradient (juce::Colours::transparentBlack, r.getCentreX(), r.getCentreY(),
-                                             juce::Colour (0x30694a1c), 0, 0, true));
-    g.fillRoundedRectangle (r, 6.0f);
-}
-
-void BandAudioProcessorEditor::drawEngraved (juce::Graphics& g, const juce::String& text, juce::Rectangle<float> r,
-                                             juce::Font f, juce::Justification j)
-{
-    g.setFont (f);
-    g.setColour (juce::Colours::white.withAlpha (0.55f));
-    g.drawFittedText (text, r.translated (0.0f, 1.0f).toNearestInt(), j, 2, 1.0f);
-    g.setColour (ink);
-    g.drawFittedText (text, r.toNearestInt(), j, 2, 1.0f);
+    panelImage = rack::renderPanel (rackW, rackH, 25);
+    juce::Graphics g (panelImage);
+    const juce::String titles[] = { "EINGANG", "BANDLAUF", "AUSGANG", "BAND" };
+    for (size_t i = 0; i < sections.size(); ++i)
+        rack::drawSection (g, sections[i], titles[i], lnf);
+    rack::drawBezel (g, vuBezelL);
+    rack::drawBezel (g, vuBezelR);
+    for (auto& k : knobs)
+        rack::drawKnobLabel (g, k->slider, k->name, lnf, k->big ? 14.0f : 12.0f);
+    const juce::String names[] = { "BAND", "AUTO-GAIN" };
+    for (size_t i = 0; i < 2; ++i)
+        rack::drawLabel (g, names[i], switchLabels[i].toFloat(), lnf, 11.0f, juce::Justification::centredLeft);
+    rack::drawNameplate (g, nameplate, "BAND", "BANDMASCHINE", lnf);
+    rack::drawLabel (g, "PROGRAMM", presetBox.getBounds().toFloat().withY ((float) presetBox.getY() - 16.0f).withHeight (14.0f), lnf, 11.0f, juce::Justification::centredLeft);
+    rack::drawTypeTag (g, rack::u8 ("TYP KB-1500  \xc2\xb7  NR. 0610"), tagArea, lnf);
 }
 
 void BandAudioProcessorEditor::paint (juce::Graphics& g)
 {
-    g.drawImageAt (tolexImage, 0, 0);
-
-    // Logo
-    const auto scriptF = lnf.scriptFont (64.0f);
-    const auto logoArea = juce::Rectangle<float> (40.0f, 8.0f, 400.0f, 84.0f);
-    g.setFont (scriptF);
-    g.setColour (juce::Colours::black.withAlpha (0.55f));
-    g.drawText ("Klangbild", logoArea.translated (2.0f, 3.0f), juce::Justification::centredLeft);
-    g.setColour (logo);
-    g.drawText ("Klangbild", logoArea, juce::Justification::centredLeft);
-    const float sw = (float) juce::GlyphArrangement::getStringWidthInt (scriptF, "Klangbild");
-    g.setColour (gold);
-    g.setFont (lnf.labelFont (26.0f, 0.35f));
-    g.drawText ("BAND", juce::Rectangle<float> (logoArea.getX() + sw + 14.0f, logoArea.getY() + 30.0f, 140.0f, 40.0f), juce::Justification::centredLeft);
-    g.setColour (logo.withAlpha (0.55f));
-    g.setFont (lnf.labelFont (12.0f, 0.3f));
-    g.drawText (juce::CharPointer_UTF8 ("BANDMASCHINE \xc2\xb7 S\xc3\x84TTIGUNG \xc2\xb7 WOW & FLUTTER"), juce::Rectangle<float> (44.0f, 90.0f, 420.0f, 16.0f), juce::Justification::centredLeft);
-
-    const auto pa = presetArea.toFloat();
-    g.setColour (logo.withAlpha (0.6f));
-    g.setFont (lnf.labelFont (10.0f, 0.3f));
-    g.drawText ("PROGRAMM", pa.withY (pa.getY() - 15.0f).withHeight (13.0f), juce::Justification::centredLeft);
-
-    // Frontplatte
-    const auto fp = faceplate.toFloat();
-    g.setColour (juce::Colours::black.withAlpha (0.6f));
-    g.fillRoundedRectangle (fp.expanded (4.0f).translated (0, 2.0f), 9.0f);
-    g.setGradientFill (juce::ColourGradient (gold.brighter (0.3f), 0, fp.getY(), gold.darker (0.6f), 0, fp.getBottom(), false));
-    g.fillRoundedRectangle (fp.expanded (3.0f), 8.0f);
-    g.drawImageAt (faceplateImage, faceplate.getX(), faceplate.getY());
-    g.setColour (juce::Colours::black.withAlpha (0.35f));
-    g.drawRoundedRectangle (fp, 6.0f, 1.0f);
-    for (auto [x, y, a] : { std::tuple { fp.getX() + 12.0f, fp.getY() + 12.0f, 0.4f }, std::tuple { fp.getRight() - 12.0f, fp.getY() + 12.0f, 1.3f },
-                            std::tuple { fp.getX() + 12.0f, fp.getBottom() - 12.0f, 2.2f }, std::tuple { fp.getRight() - 12.0f, fp.getBottom() - 12.0f, 0.9f } })
-        VintageLookAndFeel::drawScrew (g, { x, y }, 5.0f, a);
-
-    // Rahmen um die beiden VU-Meter
-    for (auto vbi : { vuBezelL, vuBezelR })
-    {
-        const auto vb = vbi.toFloat();
-        g.setColour (juce::Colours::black.withAlpha (0.35f));
-        g.fillRoundedRectangle (vb.translated (2.0f, 3.0f), 12.0f);
-        g.setGradientFill (juce::ColourGradient (juce::Colour (0xff2c2520), 0, vb.getY(), juce::Colour (0xff120f0c), 0, vb.getBottom(), false));
-        g.fillRoundedRectangle (vb, 12.0f);
-    }
-
-    // Trennlinie zwischen Haupt- und Nebenreglern
-    for (int dy : { 0, 1 })
-    {
-        g.setColour (dy == 0 ? ink.withAlpha (0.4f) : juce::Colours::white.withAlpha (0.5f));
-        g.drawHorizontalLine (dividerArea.getY() + dy, (float) dividerArea.getX(), (float) dividerArea.getRight());
-    }
-
-    for (auto& k : knobs)
-    {
-        const auto sb = k->slider.getBounds().toFloat();
-        drawEngraved (g, k->name, { sb.getX() - 20.0f, sb.getBottom() - 4.0f, sb.getWidth() + 40.0f, k->big ? 24.0f : 18.0f },
-                      lnf.labelFont (k->big ? 18.0f : 13.0f, k->big ? 0.2f : 0.14f), juce::Justification::centred);
-    }
-
-    const juce::String names[] = { "BAND", "AUTO-GAIN" };
-    for (size_t i = 0; i < 2; ++i)
-        drawEngraved (g, names[i], switchLabels[i].toFloat(), lnf.labelFont (12.0f, 0.14f), juce::Justification::centred);
-
-    const auto tag = tagArea.toFloat();
-    g.setColour (ink.withAlpha (0.85f));
-    g.fillRoundedRectangle (tag, 3.0f);
-    g.setColour (gold);
-    g.setFont (lnf.labelFont (11.0f, 0.2f));
-    g.drawText ("MODELL KB-1500", tag, juce::Justification::centred);
+    g.drawImageAt (panelImage, 0, 0);
 }
 
 void BandAudioProcessorEditor::resized()
 {
-    const int W = getWidth();
-    presetArea = { 44, 128, 260, 32 };
-    presetBox.setBounds (presetArea);
+    const int top = 30, bottom = rackH - 34;
+    sections[0] = { 72, top, 240, 330 };
+    sections[1] = { 324, top, 460, 330 };
+    sections[2] = { 796, top, 234, 330 };
+    sections[3] = { 72, top + 350, 958, bottom - top - 350 };
 
-    faceplate = { 24, 178, W - 48, 420 };
-    const auto in = faceplate.reduced (30, 20);
+    knobs[0]->slider.setBounds (juce::Rectangle<int> (220, 220).withCentre ({ sections[0].getCentreX(), top + 160 }));
+    knobs[1]->slider.setBounds (juce::Rectangle<int> (220, 220).withCentre ({ sections[2].getCentreX(), top + 160 }));
+    reels.setBounds (sections[1].getX() + 10, top + 14, sections[1].getWidth() - 20, 166);
+    vuBezelL = { sections[1].getX() + 14, top + 186, 210, 136 };
+    vuBezelR = { sections[1].getRight() - 14 - 210, top + 186, 210, 136 };
+    vuLeft.setBounds (vuBezelL.reduced (8));
+    vuRight.setBounds (vuBezelR.reduced (8));
 
-    // obere Reihe: Eingang | VU L | VU R | Ausgang
-    const int topH = 250;
-    knobs[0]->slider.setBounds (in.getX() - 10, in.getY() + 10, 230, 210);
-    knobs[1]->slider.setBounds (in.getRight() - 220, in.getY() + 10, 230, 210);
-    vuBezelL = juce::Rectangle<int> (282, 214).withCentre ({ in.getCentreX() - 148, in.getY() + 118 });
-    vuBezelR = juce::Rectangle<int> (282, 214).withCentre ({ in.getCentreX() + 148, in.getY() + 118 });
-    vuLeft.setBounds (vuBezelL.reduced (9));
-    vuRight.setBounds (vuBezelR.reduced (9));
-    dividerArea = { in.getX() + 10, in.getY() + topH + 6, in.getWidth() - 20, 2 };
-
-    // untere Reihe: Speed, Bias, Wow, Flutter, Rauschen | Schalter
-    const int rowY = in.getY() + topH + 14;
+    const auto rs = sections[3];
+    const int kw = 150, gap = (rs.getWidth() - 5 * kw) / 6;
     for (int i = 2; i < 7; ++i)
-        knobs[(size_t) i]->slider.setBounds (in.getX() + (i - 2) * 124, rowY, 124, 108);
+        knobs[(size_t) i]->slider.setBounds (rs.getX() + gap + (i - 2) * (kw + gap), rs.getY() + 18, kw, kw);
 
+    const int colX = 1046, colW = rackW - 56 - 16 - colX;
+    nameplate = { colX, top - 8, colW, 88 };
+    presetBox.setBounds (colX, top + 112, colW, 28);
     juce::ToggleButton* sws[] = { &onSwitch, &autoSwitch };
-    const int restX = in.getX() + 5 * 124, cx = (restX + in.getRight()) / 2;
     for (int i = 0; i < 2; ++i)
     {
-        const int x = cx - 140 + i * 140;
-        switchLabels[(size_t) i] = { x, rowY + 8, 140, 16 };
-        sws[i]->setBounds (x + 10, rowY + 30, 120, 40);
+        const int y = top + 168 + i * 84;
+        switchLabels[(size_t) i] = { colX + 4, y, colW, 14 };
+        sws[i]->setBounds (colX + 4, y + 18, 150, 40);
     }
-    tagArea = { cx - 100, rowY + 84, 200, 24 };
-
-    reels.setBounds (W - 470, 4, 440, 170);
-
-    renderTextures();
+    tagArea = { colX - 60, rackH - 28, colW + 60, 16 };
+    renderPanel();
 }
 
 //==============================================================================
