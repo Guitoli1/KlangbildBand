@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "ScaledEditor.h"
 
 namespace
 {
@@ -195,7 +196,7 @@ void BandAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
             rp->setValueNotifyingHost (rp->convertTo0to1 (rp->convertFrom0to1 (rp->getValue())));
 }
 
-juce::AudioProcessorEditor* BandAudioProcessor::createEditor() { return new BandAudioProcessorEditor (*this); }
+juce::AudioProcessorEditor* BandAudioProcessor::createEditor() { return new kb::ScaledEditor (*this, new BandAudioProcessorEditor (*this)); }
 
 #ifndef KB_EMBEDDED
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new BandAudioProcessor(); }
